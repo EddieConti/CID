@@ -1,5 +1,6 @@
 # CID
 Repository for the paper CID: Measuring Feature Importance Through Counterfactuals Distributions. Link to paper: https://proceedings.mlr.press/v307/conti26a
+
 The library currently provides support for numerical features and binary/multiclass classification, with categorical feature support under development.
 
 ## Project Structure
@@ -27,7 +28,7 @@ The explainer follows a modular strategy in which counterfactual generation and 
 
 Contains the implementation for categorical features.
 
-**Status:** under development.
+**Status:** currently under development.
 
 ### `initializer.py`
 
@@ -43,9 +44,9 @@ The modular structure allows different approaches to be used without changing th
 
 ### `Dissimilarity_measure.py`
 
-Contains the distributional dissimilarity measure used by CID to compare the feature distributions of the generated counterfactual sets.
+Contains the distributional dissimilarity measure used by CID to compare the feature distributions of the generated counterfactual sets. 
 
-The dissimilarity measure is independent from the counterfactual-generation strategy.
+The dissimilarity measure is independent from the counterfactual-generation strategy. At this stage there is a continuous version of the jaccard distance (numerical variables) and the jaccard distance (categorical variables).
 
 ## Examples
 
@@ -59,9 +60,11 @@ Example of CID applied to a **binary classification** problem.
 
 Example of CID applied to a **multiclass classification** problem.
 
-The notebooks provide practical examples of how to initialize the explainer and obtain feature importance values.
+The notebooks provide practical examples of how to initialize the explainer and obtain feature importance values. It essentially requires preprocessing the dataset.
 
 ## Basic Usage
+
+When using the library we need to consider the coherence with DiCE in case of cf_method = "dice" (https://interpret.ml/DiCE/notebooks/DiCE_getting_started.html)
 
 A numerical CID explainer can be initialized as follows:
 
@@ -71,6 +74,7 @@ from CID_numerical import CIDNumericalExplainer
 explainer = CIDNumericalExplainer(
     training_data,
     model,
+    cf_method = "dice",
     target_ft_name="Outcome"
 )
 
@@ -78,6 +82,8 @@ feature_importances = explainer.explain_instance(instance)
 ```
 
 The resulting feature importance values correspond to the dissimilarity between the distributions associated with the different counterfactual classes for each feature.
+
+Global explanations (as aggregation of individual explanations) can be generated using .global_explanation
 
 ## Modular Architecture
 
