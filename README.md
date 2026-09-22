@@ -74,7 +74,7 @@ from CID_numerical import CIDNumericalExplainer
 explainer = CIDNumericalExplainer(
     training_data,
     model,
-    cf_method = "dice",
+    cf_method="dice",
     target_ft_name="Outcome"
 )
 
