@@ -14,8 +14,7 @@ The main components of the project are:
 ├── initializer.py
 ├── Counterfactual_generators.py
 ├── Dissimilarity_measure.py
-├── Introduction_Binary_Classification.ipynb
-└── Introduction_Multiclass.ipynb
+├── Examples
 ```
 
 ### `CID_numerical.py`
