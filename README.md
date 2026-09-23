@@ -44,7 +44,7 @@ Must return:
 ```python
 predicted_class_data, opposite_class_data
 ```
-
+Intializer.py contains DICE, KNeighbors and RANDOM
 ### 2. Distribution approximation
 
 Infers or approximates the two distributions from the counterfactual samples.
@@ -61,7 +61,7 @@ Must return:
 distribution_1, distribution_2, points
 ```
 
-Examples include KDE and ECDF.
+Dissimilarity_Measure.py include KDE and ECDF.
 
 ### 3. Distribution dissimilarity
 
@@ -75,7 +75,7 @@ dist_function(distribution_1, distribution_2, points)
 
 Must return a **single scalar value**.
 
-Examples include continuous Jaccard and Wasserstein distance.
+Dissimilarity_Measure.py include continuous Jaccard and Wasserstein distance.
 
 ## Custom functions
 
