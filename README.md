@@ -1,102 +1,118 @@
-# CID
-Repository for the paper CID: Measuring Feature Importance Through Counterfactuals Distributions. Link to paper: https://proceedings.mlr.press/v307/conti26a
+# CID — Counterfactual-based Attribution
 
-The library currently provides support for numerical features and binary/multiclass classification, with categorical feature support under development.
+A modular Python library for constructing based on the paper CID: Measuring Feature Importance Through Counterfactuals Distributions. Link to paper: https://proceedings.mlr.press/v307/conti26a
 
-## Project Structure
+## Core idea
 
-The main components of the project are:
+CID follows a common attribution strategy:
 
 ```text
-.
-├── CID_numerical.py
-├── CID_categorical.py
-├── initializer.py
-├── Counterfactual_generators.py
-├── Dissimilarity_measure.py
-├── Examples
+Instance
+   ↓
+Generate two sets of counterfactual points
+   ↓
+Infer the distributions
+   ↓
+Measure their dissimilarity
+   ↓
+Feature attribution
 ```
 
-### `CID_numerical.py`
+For each feature, the method compares its distribution in two sets of counterfactuals:
 
-Contains the main `CIDNumericalExplainer` class for computing feature importance for numerical features.
+* points belonging to the **predicted class**;
+* points belonging to the **opposite class**.
 
-The explainer follows a modular strategy in which counterfactual generation and the dissimilarity measure can be changed independently.
+The resulting dissimilarity is used as the feature attribution.
 
-### `CID_categorical.py`
+The framework is modular: changing any of the three components results in a different attribution method, while preserving the same underlying strategy.
 
-Contains the implementation for categorical features.
+## Three components
 
-**Status:** currently under development.
+### 1. Counterfactual generation
 
-### `initializer.py`
+Generates the two sets of counterfactual points.
 
-Contains the initialization strategies for the different counterfactual-generation methods.
-
-The initializer is responsible for preparing the component required by the selected strategy.
-
-### `Counterfactual_generators.py`
-
-Contains the different counterfactual-generation strategies used by CID.
-
-The modular structure allows different approaches to be used without changing the core CID algorithm.
-
-### `Dissimilarity_measure.py`
-
-Contains the distributional dissimilarity measure used by CID to compare the feature distributions of the generated counterfactual sets. 
-
-The dissimilarity measure is independent from the counterfactual-generation strategy. At this stage there is a continuous version of the jaccard distance (numerical variables) and the jaccard distance (categorical variables).
-
-## Examples
-
-Two Jupyter notebooks are provided to demonstrate the use of the library:
-
-### `Introduction_Binary_Classification.ipynb`
-
-Example of CID applied to a **binary classification** problem.
-
-### `Introduction_Multiclass.ipynb`
-
-Example of CID applied to a **multiclass classification** problem.
-
-The notebooks provide practical examples of how to initialize the explainer and obtain feature importance values. It essentially requires preprocessing the dataset.
-
-## Basic Usage
-
-When using the library we need to consider the coherence with DiCE in case of cf_method = "dice" (https://interpret.ml/DiCE/notebooks/DiCE_getting_started.html)
-
-A numerical CID explainer can be initialized as follows:
+Required interface:
 
 ```python
-from CID_numerical import CIDNumericalExplainer
+cf_function(instance, amount_of_cfs)
+```
 
+Must return:
+
+```python
+predicted_class_data, opposite_class_data
+```
+
+### 2. Distribution approximation
+
+Infers or approximates the two distributions from the counterfactual samples.
+
+Required interface:
+
+```python
+distr_approx(set_1, set_2)
+```
+
+Must return:
+
+```python
+distribution_1, distribution_2, points
+```
+
+Examples include KDE and ECDF.
+
+### 3. Distribution dissimilarity
+
+Measures the dissimilarity between the two distributions.
+
+Required interface:
+
+```python
+dist_function(distribution_1, distribution_2, points)
+```
+
+Must return a **single scalar value**.
+
+Examples include continuous Jaccard and Wasserstein distance.
+
+## Custom functions
+
+All three components can be replaced by user-defined functions.
+
+For example:
+
+```python
+def my_distribution(set_1, set_2):
+    # Your distribution approximation
+    ...
+    return distribution_1, distribution_2, points
+```
+
+and:
+
+```python
+def my_distance(distribution_1, distribution_2, points):
+    # Your dissimilarity measure
+    ...
+    return distance
+```
+
+They can then be passed directly to the explainer:
+
+```python
 explainer = CIDNumericalExplainer(
-    training_data,
-    model,
-    cf_method="dice",
-    target_ft_name="Outcome"
+    training_data=training_data,
+    features_names=features_names,
+    model=model,
+    cf_function=my_cf_function,
+    distr_approx=my_distribution,
+    dist_function=my_distance
 )
-
-feature_importances = explainer.explain_instance(instance)
 ```
 
-The resulting feature importance values correspond to the dissimilarity between the distributions associated with the different counterfactual classes for each feature.
+Functions can also be implemented as **callable classes** using `__call__`, which is useful when the method requires parameters that should be configured once and reused.
 
-Global explanations (as aggregation of individual explanations) can be generated using .global_explanation
-
-## Modular Architecture
-
-CID separates the main components of the method into independent modules:
-
-```text
-CIDNumericalExplainer
-        │
-        ├── Initializer
-        │
-        ├── Counterfactual Generator
-        │
-        └── Dissimilarity Measure
-```
-
-This structure makes it possible to experiment with different counterfactual-generation and dissimilarity strategies while keeping the main explainer unchanged.
+The only requirement is that the custom component respects the corresponding interface and output format described above.
 
