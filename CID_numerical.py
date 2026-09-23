@@ -5,14 +5,10 @@ from tqdm import tqdm
 import os
 from contextlib import redirect_stdout, redirect_stderr
 
-from scipy.stats import gaussian_kde
-from sklearn.neighbors import KernelDensity
-import dice_ml
-from sklearn.neighbors import NearestNeighbors
 from pandas.api.types import is_numeric_dtype
 
 # Internal functions
-from Dissimilarity_Measure import _kde_dissimilarity
+from Dissimilarity_Measure import _continuous_jaccard,_ecdf,_kde_approximation,_wasserstein
 from Initializer import _init_dice,_init_neighbors,_init_random
 from Counterfactual_generators import _generate_dice,_generate_neighbors,_generate_random
 
@@ -36,6 +32,10 @@ class CIDNumericalExplainer:
             Name of the target feature
     cf_method : str, default="dice"
         Counterfactual generation method. Possible alternatives neighbors, random
+    distance_method : str, default="jaccard"
+            Distance between two distributions. Possible alternatives wasserstein
+    distribution_approx : str, default="pdf"
+            Type of distribution computation from data. Possible alternatives ecdf
     cf_generation_dice : str, default="random"
         DiCE counterfactual generation strategy.
     kernel : str, default="gaussian"
@@ -52,6 +52,8 @@ class CIDNumericalExplainer:
         model,
         target_ft_name,
         cf_method="dice",
+        distance_method = "jaccard",
+        distribution_approx = "pdf",
         cf_generation_dice="random",
         kernel="gaussian",
         features_names=None,
@@ -98,6 +100,20 @@ class CIDNumericalExplainer:
         }
 
         self.cf_generator = self.cf_generators[cf_method]
+
+        distances = {
+                    "jaccard": _continuous_jaccard,
+                    "wasserstein": _wasserstein,
+                }
+        self.distance = distances[distance_method]
+
+        approximations = {
+                    "pdf": _kde_approximation,
+                    "ecdf": _ecdf,
+                }
+        self.approx = approximations[distribution_approx]
+        
+
 
 
     def explain_instance(
@@ -146,15 +162,18 @@ class CIDNumericalExplainer:
 
         feature_importances = []
 
-        for feature_idx in range(len(self.features_names)):
-            dissimilarity = _kde_dissimilarity(
-                opposite_class_data[:, feature_idx],
-                predicted_class_data[:, feature_idx],
-                kernel=self.kernel,
-                bandwidth=self.kernel_bandwidth,
-            )
 
-            feature_importances.append(dissimilarity)
+        for feature_idx in range(len(self.features_names)):
+            
+            func_1,funct_2,points = self.approx(opposite_class_data[:, feature_idx],
+                                                predicted_class_data[:, feature_idx],
+                                                kernel=self.kernel,
+                                                bandwidth=self.kernel_bandwidth)
+
+
+            distance = self.distance(func_1,funct_2,points)
+
+            feature_importances.append(distance)
 
         return np.array(feature_importances)
 

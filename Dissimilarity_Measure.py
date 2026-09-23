@@ -2,38 +2,33 @@ import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
 from sklearn.neighbors import KernelDensity
+from scipy.stats import ecdf
 
 
-def _kde_dissimilarity(
+
+
+def _kde_approximation(
     set_1,
     set_2,
     kernel="gaussian",
     bandwidth=None,
 ):
     """
-    Compute the dissimilarity between two one-dimensional distributions
-    estimated through Kernel Density Estimation.
-
-    The dissimilarity is based on the overlap between the two densities:
-
-        D = 1 - integral(min(p1, p2)) / integral(max(p1, p2))
-
+    PDF estimated through Kernel Density Estimation. 
     Parameters
     ----------
     set_1 : array-like
         Samples from the first distribution.
     set_2 : array-like
         Samples from the second distribution.
+    
     kernel : str, default="gaussian"
-        Kernel used for KDE. Supported kernels are:
-        "gaussian", "epanechnikov", and "exponential".
+                    Kernel used for KDE. Supported kernels are:
+                    "gaussian", "epanechnikov", and "exponential".
+    
     bandwidth : float, optional
         Bandwidth used by non-Gaussian kernels.
-
-    Returns
-    -------
-    float
-        Dissimilarity value between 0 and 1.
+     
     """
 
     set_1 = np.asarray(set_1).ravel()
@@ -50,7 +45,8 @@ def _kde_dissimilarity(
     # One of the two degenerate -> CID is undefined.
     if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
         if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-            raise ValueError("Dissimilarity is undefined when one distribution is degenerate.")
+            raise ValueError("Dissimilarity is undefined when one distribution is degenerate." \
+            "Please use the ecdf")
 
 
     x_min = min(set_1.min(), set_2.min())
@@ -84,9 +80,52 @@ def _kde_dissimilarity(
             "Choose from 'gaussian', 'epanechnikov', or 'exponential'."
         )
 
-    dissimilarity = 1 - np.trapz(np.minimum(density_1, density_2), x.ravel()) / np.trapz(np.maximum(density_1, density_2), x.ravel())
+    return density_1,density_2,x
+
+
+
+
+def _ecdf(set_1,set_2,  # So that we have the same signature
+    kernel="gaussian",
+    bandwidth=None,
+):
+
+    """
+    Computation of the Empirical Cumulative Density Function
+    """
+
+    x_min = min(set_1.min(), set_2.min())
+    x_max = max(set_1.max(), set_2.max())
+
+    x = np.linspace(x_min, x_max, 1000)
+    set_1 = np.asarray(set_1).ravel()
+    set_2 = np.asarray(set_2).ravel()
+
+    F1 = ecdf(set_1).cdf.evaluate(x)
+    F2 = ecdf(set_2).cdf.evaluate(x)
+
+    return F1,F2,x
+
+
+
+
+def _continuous_jaccard(func_1,func_2,points):
+    """
+    Computes the dissimilarity between two distributions, using a continuous version
+    of Jaccard Index
+    """
+    dissimilarity = 1 - np.trapz(np.minimum(func_1, func_2), points.ravel()) / np.trapz(np.maximum(func_1, func_2), points.ravel())
 
     return np.round(dissimilarity,4)
+
+
+def _wasserstein(func_1,func_2,points):
+    """
+    Computes the wasserstein distance between two distributions
+    """
+    return np.trapz(np.abs(func_1-func_2),points.ravel())
+
+
 
 
 def _jaccard_distance(set1, set2):
