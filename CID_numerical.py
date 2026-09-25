@@ -43,6 +43,7 @@ class CIDNumericalExplainer:
         self,
         training_data,
         features_names,
+        target_ft_name,
         model,
         cf_function,
         distr_approx=_kde_approximation,
@@ -51,6 +52,7 @@ class CIDNumericalExplainer:
 
         self.training_data = training_data
         self.model = model
+        self.target_ft_name = target_ft_name
         self.cf_function = cf_function
         self.dist_function = dist_function
         self.distr_approx = distr_approx
@@ -129,17 +131,17 @@ class CIDNumericalExplainer:
 
         df = pd.DataFrame({"Feature Importance": feature_importances},index=self.features_names)
 
-        if output:
-            return df
-
 
         if barplot:
             fig, ax = plt.subplots()
-            ax.barh(self.features_names,feature_importances)
+            ax.barh(self.features_names[::-1],feature_importances[::-1])
             ax.set_xlabel("Feature Importance")
             ax.set_ylabel("Feature")
             plt.tight_layout()
             plt.show()
+
+        if output:
+            return df
 
 
 

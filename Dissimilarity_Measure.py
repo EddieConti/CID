@@ -105,6 +105,21 @@ class ECDF:
         return F1,F2,x
 
 
+def _ecdf(set_1,set_2):
+    
+    x_min = min(set_1.min(), set_2.min())
+    x_max = max(set_1.max(), set_2.max())
+
+    x = np.linspace(x_min, x_max, 1000)
+    set_1 = np.asarray(set_1).ravel()
+    set_2 = np.asarray(set_2).ravel()
+
+    F1 = ecdf(set_1).cdf.evaluate(x)
+    F2 = ecdf(set_2).cdf.evaluate(x)
+
+    return F1,F2,x
+
+
 def _kde_approximation(
     set_1,
     set_2,
@@ -143,7 +158,7 @@ def _kde_approximation(
     # One of the two degenerate -> CID is undefined.
     if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
         if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-            raise ValueError("Dissimilarity is undefined when one distribution is degenerate." \
+            raise ValueError("Dissimilarity is undefined when one distribution is degenerate. " \
             "Please use the ecdf")
 
 

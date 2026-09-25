@@ -6,9 +6,10 @@ import numpy as np
 
 class DICE:
 
-    def __init__(self,model,training_data,features_names,target_ft_name,cf_generation_dice):
+    def __init__(self,model,training_data,features_names,target_ft_name,cf_generation_dice="random"):
 
         self.model = model
+        self.features_names = features_names
         self.training_data = training_data
         self.target_ft_name = target_ft_name
         data = dice_ml.Data(
