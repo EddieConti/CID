@@ -65,6 +65,15 @@ class CIDNumericalExplainer:
                     "Please convert it or pass a different set of columns."
                 )
 
+    def __str__(self): # We allow print the explainer
+        return "Explanation method based on {} counterfactual generator, " \
+        "{} distribution approximation and {} metric".format(self.cf_function,self.distr_approx,self.dist_function)
+    
+    def __repr__(self):
+        return self.__str__()
+
+
+   
     def explain_instance(
         self,
         instance,

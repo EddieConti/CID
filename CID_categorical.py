@@ -1,0 +1,189 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import os
+from contextlib import redirect_stdout, redirect_stderr
+
+from pandas.api.types import is_numeric_dtype, is_object_dtype
+
+# Internal functions
+from Dissimilarity_Measure import _jaccard_distance
+
+
+class CIDCategoricalExplainer:
+    """
+    Counterfactual-based explainer for numerical features.
+
+    The explainer is modular and allows the user to provide custom
+    implementations for the main components:
+
+    - cf_function:
+        Generates counterfactual samples for the predicted and opposite
+        classes. It must accept an instance and the desired number of
+        counterfactuals, and return two arrays containing the generated
+        samples.
+
+    - dist_function:
+        Computes the distance between two sets. It must accept two 
+        sets of categorical value and return a scalar, accounting
+        for the distance.
+
+    The default implementations employsthe jaccard distance.
+    """
+
+    def __init__(
+        self,
+        training_data,
+        features_names,
+        target_ft_name,
+        model,
+        cf_function,
+        dist_function=_jaccard_distance,
+    ):
+
+        self.training_data = training_data
+        self.model = model
+        self.target_ft_name = target_ft_name
+        self.cf_function = cf_function
+        self.dist_function = dist_function
+        self.features_names = features_names
+
+        # for column in features_names:
+        #    if not is_object_dtype(training_data[column]):
+        #        raise TypeError(
+        #            f"Feature '{column}' is not categorical. "
+        #            "Please convert it or pass a different set of columns."
+        #        )
+
+    def explain_instance(
+        self,
+        instance,
+        amount_of_cfs=50,
+    ):
+
+        if not isinstance(instance, pd.DataFrame):
+            x_df = instance.to_frame().T
+        else:
+            x_df = instance
+
+        # Check on amount of CFs
+        if not isinstance(amount_of_cfs, int):
+            raise TypeError(
+                "The amount of counterfactuals must be an integer!"
+            )
+
+        predicted_class_data, opposite_class_data = self.cf_function(x_df,amount_of_cfs)
+
+        feature_importances = []
+
+        for feature_idx in range(len(self.features_names)):
+
+            distance = self.dist_function(opposite_class_data[:, feature_idx],predicted_class_data[:, feature_idx])
+
+            feature_importances.append(distance)
+
+        return np.array(feature_importances)
+
+
+    def visualize_feature_importances(
+        self,
+        feature_importances,
+        barplot=True,
+        output=False,
+    ):
+        """
+        Display feature importance values.
+
+        Parameters
+        ----------
+        feature_importances : array-like
+            Feature importance values returned by `explain_instance`.
+        barplot : bool, default=False
+            Whether to display a horizontal bar plot.
+        output : bool, default=True
+            Whether to return the feature importance DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame, optional
+            Feature importance values indexed by feature name.
+        """
+        if not isinstance(feature_importances, np.ndarray):
+            raise TypeError("feature_importances must be a NumPy array.")
+
+        if len(feature_importances) != len(self.features_names):
+            raise ValueError("feature_importances and features_names must have the same length.")
+
+        df = pd.DataFrame({"Feature Importance": feature_importances},index=self.features_names)
+
+
+        if barplot:
+            fig, ax = plt.subplots()
+            ax.barh(self.features_names[::-1],feature_importances[::-1])
+            ax.set_xlabel("Feature Importance")
+            ax.set_ylabel("Feature")
+            plt.tight_layout()
+            plt.show()
+
+        if output:
+            return df
+
+
+
+    def global_explanation(
+        self,
+        n_instances=30,
+        amount_of_cfs=50,
+        variability=False
+    ):
+        """
+        Compute a global explanation by averaging local explanations
+        over a sample of training instances.
+
+        Parameters
+        ----------
+        n_instances : int, default=30
+            Number of instances used for the global explanation.
+        amount_of_cfs : int, default=50
+            Number of counterfactuals generated per instance.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Mean feature importance for each feature.
+        """
+        if n_instances > len(self.training_data):
+            raise ValueError(
+                f"The amount of instances exceeds the amount of data. Please lower the value of n_instances"
+            )
+
+        if self.target_ft_name in self.training_data.columns: 
+            sample_set = self.training_data.drop(columns=self.target_ft_name)
+        
+        sample_set = self.training_data.sample(n=n_instances)
+
+
+        importances = np.zeros((n_instances, len(self.features_names)))
+
+        with tqdm(range(n_instances),desc="Explaining instances") as progress:
+
+            with open(os.devnull, "w") as devnull:
+                with redirect_stdout(devnull), redirect_stderr(devnull):
+                    for i in progress:
+                        importances[i, :] = self.explain_instance(
+                        sample_set.iloc[i:i+1],
+                        amount_of_cfs=amount_of_cfs,
+                        )
+        global_importances = np.mean(importances, axis=0)
+
+        if variability:
+            stds = np.std(importances, axis=0)
+            return pd.DataFrame({"Feature Importance": global_importances,"Std": stds,},
+                    index=self.features_names,
+                    )
+        else:
+            return pd.DataFrame({"Feature Importance": global_importances},
+                                index=self.features_names,
+                                )
+            

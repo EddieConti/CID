@@ -143,5 +143,124 @@ class RANDOM:
         
 
 
+# Categorical Features
+
+
+class RANDOM_Categorical:
+
+     def __init__(self,model,training_data,features_names,n_samples=1000):
+
+        self.model = model
+        self.training_data = training_data
+        self.features_names = features_names
+        self.n_samples = n_samples
+
+     def __call__(self,instance,amount_of_cfs):
+
+        probabilities = self.model.predict_proba(instance).squeeze()
+        predicted_class = np.argmax(probabilities)
+
+
+        data = np.empty((self.n_samples, len(self.features_names)), dtype=object)
+
+        for i in range(self.n_samples):
+
+            perturbed_vector = [np.random.choice(
+                    np.unique(self.training_data[feature]))
+                for feature in self.features_names
+            ]
+
+            data[i, :] = perturbed_vector
+
+        random_points = pd.DataFrame(
+            data,
+            columns=self.training_data.columns.values
+        )
+
+        predictions = self.model.predict(random_points)
+
+        predicted_class_data = random_points[predictions == predicted_class].values
+
+        opposite_class_data = random_points[predictions != predicted_class].values
+
+        if len(predicted_class_data) < amount_of_cfs:
+            raise ValueError("Not enough same-class random samples.")
+
+        if len(opposite_class_data) < amount_of_cfs:
+            raise ValueError("Not enough opposite-class random samples.")
+
+        return predicted_class_data[:amount_of_cfs], opposite_class_data[:amount_of_cfs]
+
+
+
+class DICE_Categorical():
+    
+    def __init__(
+        self,
+        model,
+        training_data,
+        categorical_names,
+        target_ft_name,
+        cf_generation_dice="random"
+    ):
+
+        self.model = model
+        self.categorical = categorical_names
+        self.training_data = training_data
+        self.target_ft_name = target_ft_name
+
+        continuous_features = [
+            feature for feature in self.features
+            if feature not in self.categorical
+        ]
+
+        data = dice_ml.Data(
+            dataframe=training_data,
+            continuous_features=continuous_features,
+            outcome_name=target_ft_name,
+        )
+
+        dice_model = dice_ml.Model(
+            model=model,
+            backend="sklearn",
+        )
+
+        self.exp = dice_ml.Dice(
+            data,
+            dice_model,
+            method=cf_generation_dice,
+        )
+    
+        def __call__(self, instance, amount_of_cfs):
+    
+            if not isinstance(instance, pd.DataFrame):
+                    instance = instance.to_frame().T
+    
+            probabilities = self.model.predict_proba(instance).squeeze()
+            predicted_class = np.argmax(probabilities)
+            opposite_class = 1 - predicted_class
+    
+            opposite_class_cf = self.exp.generate_counterfactuals(
+                    instance,
+                    total_CFs=amount_of_cfs,
+                    features_to_vary=self.categorical,
+                    desired_class=int(opposite_class),
+                )
+            
+            predicted_class_cf = self.exp.generate_counterfactuals(
+                    instance,
+                    total_CFs=amount_of_cfs,
+                    features_to_vary=self.categorical,
+                    desired_class=int(predicted_class),
+                )
+    
+            opposite_class_data = (opposite_class_cf.cf_examples_list[0].final_cfs_df[self.features_names].values)
+    
+            predicted_class_data = (predicted_class_cf.cf_examples_list[0].final_cfs_df[self.features_names].values)
+    
+            return predicted_class_data, opposite_class_data
+
+
+
 
 
