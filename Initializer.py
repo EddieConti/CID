@@ -2,6 +2,8 @@ import dice_ml
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np 
+from scipy.spatial.distance import hamming
+
 
 
 class DICE:
@@ -260,6 +262,46 @@ class DICE_Categorical():
     
             return predicted_class_data, opposite_class_data
 
+
+class Kneighbors_Categorical():
+
+    def __init__(self,model,training_data,features_names):
+
+        self.model = model
+        self.training_data = training_data
+        self.features_names = features_names
+
+
+    def __call__(self,instance,amount_of_cfs):
+
+        # compute hamming distances 
+
+        distances = [hamming(instance.values.squeeze(),self.training_data[i:i+1].values.squeeze()) 
+                     for i in range(1,len(self.training_data))] # we skip the point itself
+
+        probabilities = self.model.predict_proba(instance).squeeze()
+        predicted_class = np.argmax(probabilities)
+
+        sorted_indices = np.argsort(distances)
+
+        for index in sorted_indices:
+                candidate = self.training_data.iloc[index:index+1]
+
+                candidate_class = self.model.predict(candidate)[0]
+                if candidate_class == predicted_class:
+                    predicted_class_data.append(candidate[self.features_names].squeeze())
+                else:
+                    opposite_class_data.append(candidate[self.features_names].squeeze())
+                        
+                if (len(predicted_class_data) >= amount_of_cfs and len(opposite_class_data) >= amount_of_cfs):
+                    break
+        
+        predicted_class_data = np.array(predicted_class_data[:amount_of_cfs])
+        
+        opposite_class_data = np.array(opposite_class_data[:amount_of_cfs])
+
+        return predicted_class_data, opposite_class_data
+        
 
 
 
