@@ -1,6 +1,6 @@
 # CID — Counterfactual-based Attribution
 
-A modular Python library for constructing based on the paper CID: Measuring Feature Importance Through Counterfactuals Distributions. Link to paper: https://proceedings.mlr.press/v307/conti26a
+A modular Python library for feature attribution based on the paper *CID: Measuring Feature Importance Through Counterfactuals Distributions*. Link to paper: https://proceedings.mlr.press/v307/conti26a
 
 ## Core idea
 
@@ -23,96 +23,93 @@ For each feature, the method compares its distribution in two sets of counterfac
 * points belonging to the **predicted class**;
 * points belonging to the **opposite class**.
 
-The resulting dissimilarity is used as the feature attribution.
+The resulting dissimilarity is used as the feature attribution. The framework is modular: changing any of the components results in a different attribution method, while preserving the same underlying strategy.
 
-The framework is modular: changing any of the three components results in a different attribution method, while preserving the same underlying strategy.
+## Structure
 
-## Three components
+| File | Content |
+|---|---|
+| `CID_base.py` | `BaseCIDExplainer`: logic shared by both explainers (local and global explanations, plots) |
+| `CID_numerical.py` | `CIDNumericalExplainer`: importance of the numerical features |
+| `CID_categorical.py` | `CIDCategoricalExplainer`: importance of the categorical features |
+| `Initializer.py` | Counterfactual generators: `DICE`, `KNeighbors`, `RANDOM` |
+| `Dissimilarity_Measure.py` | Distribution approximations (`KDE`, `ECDF`) and dissimilarities (continuous Jaccard, Wasserstein, Jaccard distance for categories) |
+
+## Flexibility
+
+The dataset can **mix numerical and categorical features**. Pass it once, then use each explainer to get the importances of the features of its own type: the other features are kept fixed while generating counterfactuals.
+
+* Features are detected from the dtypes (numeric vs. non-numeric). Integer-coded categoricals must be given explicitly with `features_names=[...]` (to both explainers).
+* `model` must accept a DataFrame with all the columns except the target.
+* `cf_function` can be `"knn"`, `"random"`, `"dice"` or any callable (see below).
+
+```python
+from CID_numerical import CIDNumericalExplainer
+from CID_categorical import CIDCategoricalExplainer
+
+num = CIDNumericalExplainer(training_data=df, target_ft_name="y", model=model)
+cat = CIDCategoricalExplainer(training_data=df, target_ft_name="y", model=model)
+
+# Local explanation
+x = df.drop(columns="y").iloc[0]
+num.explain_instance(x)
+cat.explain_instance(x)
+
+# Global explanation (mean over a sample of instances)
+num.global_explanation(n_instances=30, variability=True)
+cat.global_explanation(n_instances=30)
+```
+
+## Components
 
 ### 1. Counterfactual generation
 
-Generates the two sets of counterfactual points.
-
-Required interface:
-
 ```python
-cf_function(instance, amount_of_cfs)
+cf_function(instance, amount_of_cfs)  ->  predicted_class_data, opposite_class_data
 ```
 
-Must return:
+Both outputs are arrays containing only the explained features (columns in the order of `features_names`). Available in `Initializer.py`: `DICE`, `KNeighbors`, `RANDOM`.
+
+### 2. Distribution approximation (numerical explainer)
 
 ```python
-predicted_class_data, opposite_class_data
-```
-Intializer.py contains DICE, KNeighbors and RANDOM
-### 2. Distribution approximation
-
-Infers or approximates the two distributions from the counterfactual samples.
-
-Required interface:
-
-```python
-distr_approx(set_1, set_2)
+distr_approx(set_1, set_2)  ->  distribution_1, distribution_2, points
 ```
 
-Must return:
-
-```python
-distribution_1, distribution_2, points
-```
-
-Dissimilarity_Measure.py include KDE and ECDF.
+Available in `Dissimilarity_Measure.py`: `KDE`, `ECDF`.
 
 ### 3. Distribution dissimilarity
 
-Measures the dissimilarity between the two distributions.
-
-Required interface:
-
 ```python
-dist_function(distribution_1, distribution_2, points)
+dist_function(distribution_1, distribution_2, points)  ->  scalar          # numerical
+dist_function(set_1, set_2)                            ->  scalar          # categorical
 ```
 
-Must return a **single scalar value**.
-
-Dissimilarity_Measure.py include continuous Jaccard and Wasserstein distance.
+Available in `Dissimilarity_Measure.py`: continuous Jaccard and Wasserstein distance (numerical), Jaccard distance (categorical).
 
 ## Custom functions
 
-All three components can be replaced by user-defined functions.
-
-For example:
+Every component can be replaced by a user-defined function (or by a **callable class** with `__call__`, useful when parameters must be configured once and reused). The only requirement is to respect the interface above.
 
 ```python
 def my_distribution(set_1, set_2):
-    # Your distribution approximation
     ...
     return distribution_1, distribution_2, points
-```
 
-and:
-
-```python
 def my_distance(distribution_1, distribution_2, points):
-    # Your dissimilarity measure
     ...
     return distance
-```
 
-They can then be passed directly to the explainer:
-
-```python
 explainer = CIDNumericalExplainer(
-    training_data=training_data,
-    features_names=features_names,
+    training_data=df,
+    target_ft_name="y",
     model=model,
-    cf_function=my_cf_function,
+    cf_function=my_cf_function,       # or "knn" / "random" / "dice"
     distr_approx=my_distribution,
-    dist_function=my_distance
+    dist_function=my_distance,
 )
 ```
 
-Functions can also be implemented as **callable classes** using `__call__`, which is useful when the method requires parameters that should be configured once and reused.
+## Examples
 
-The only requirement is that the custom component respects the corresponding interface and output format described above.
-
+The `Examples` folder contains demo notebooks, including the categorical features case and multiclass classification.
