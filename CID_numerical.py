@@ -1,210 +1,76 @@
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import os
-from contextlib import redirect_stdout, redirect_stderr
-
 from pandas.api.types import is_numeric_dtype
 
-# Internal functions
-from Dissimilarity_Measure import _continuous_jaccard, _kde_approximation
+from CID_base import BaseCIDExplainer
+from Dissimilarity_Measure import  _ecdf, _wasserstein
+from Initializer import is_numerical_column
 
 
-class CIDNumericalExplainer:
+class CIDNumericalExplainer(BaseCIDExplainer):
     """
-    Counterfactual-based explainer for numerical features.
+    Counterfactual-based explainer for the numerical features of a dataset.
 
-    The explainer is modular and allows the user to provide custom
-    implementations for three main components:
+    See `BaseCIDExplainer` for the common parameters. The explainer is modular:
 
     - cf_function:
-        Generates counterfactual samples for the predicted and opposite
-        classes. It must accept an instance and the desired number of
-        counterfactuals, and return two arrays containing the generated
-        samples.
+        Counterfactual generator (see `BaseCIDExplainer`).
 
     - distr_approx:
-        Approximates the distributions of a feature from the two
-        counterfactual sets. It must accept two sets of samples and return
-        the two approximated distributions together with the points at
-        which they are evaluated.
+        Approximates the distributions of a feature from the two counterfactual
+        samples. It must accept two samples and return the two approximated
+        distributions together with the evaluation points (or directly a scalar
+        dissimilarity, for degenerate cases).
 
     - dist_function:
-        Computes the dissimilarity between the two approximated
-        distributions. It must accept the two distributions and their
-        evaluation points and return a scalar value.
+        Dissimilarity between the two approximated distributions. It must accept
+        the two distributions and their evaluation points and return a scalar.
 
-    The default implementations are KDE-based distribution approximation
-    and continuous Jaccard dissimilarity.
+    Defaults: KDE distribution approximation and continuous Jaccard dissimilarity.
     """
+
+    feature_kind = "numerical"
 
     def __init__(
         self,
         training_data,
-        features_names,
         target_ft_name,
         model,
-        cf_function,
-        distr_approx=_kde_approximation,
-        dist_function=_continuous_jaccard,
+        features_names=None,
+        cf_function="knn",
+        cf_kwargs=None,
+        distr_approx=_ecdf,
+        dist_function=_wasserstein,
     ):
-
-        self.training_data = training_data
-        self.model = model
-        self.target_ft_name = target_ft_name
-        self.cf_function = cf_function
-        self.dist_function = dist_function
         self.distr_approx = distr_approx
-        self.features_names = features_names
+        self.dist_function = dist_function
 
-        for column in features_names:
-            if not is_numeric_dtype(training_data[column]):
+        super().__init__(training_data, target_ft_name, model, features_names, cf_function, cf_kwargs)
+
+    @staticmethod
+    def _matches_kind(series):
+        return is_numerical_column(series)
+
+    def _validate_features(self, features):
+        for column in features:
+            if not is_numeric_dtype(self.training_data[column]):
                 raise TypeError(
                     f"Feature '{column}' is not numerical. "
                     "Please convert it or pass a different set of columns."
                 )
 
-    def __str__(self): # We allow print the explainer
-        return "Explanation method based on {} counterfactual generator, " \
-        "{} distribution approximation and {} metric".format(self.cf_function,self.distr_approx,self.dist_function)
-    
-    def __repr__(self):
-        return self.__str__()
+    def _feature_importance(self, opposite_values, predicted_values):
+        result = self.distr_approx(opposite_values, predicted_values)
 
+        # Degenerate cases: the approximation already returns the dissimilarity
+        if np.isscalar(result):
+            return float(result)
 
-   
-    def explain_instance(
-        self,
-        instance,
-        amount_of_cfs=50,
-    ):
+        func_1, func_2, points = result
 
-        if not isinstance(instance, pd.DataFrame):
-            x_df = instance.to_frame().T
-        else:
-            x_df = instance
+        return self.dist_function(func_1, func_2, points)
 
-        # Check on amount of CFs
-        if not isinstance(amount_of_cfs, int):
-            raise TypeError(
-                "The amount of counterfactuals must be an integer!"
-            )
-
-        predicted_class_data, opposite_class_data = self.cf_function(x_df,amount_of_cfs)
-
-        feature_importances = []
-
-        for feature_idx in range(len(self.features_names)):
-
-            func_1, func_2, points = self.distr_approx(
-                opposite_class_data[:, feature_idx],
-                predicted_class_data[:, feature_idx]
-            )
-
-            distance = self.dist_function(func_1,func_2,points)
-
-            feature_importances.append(distance)
-
-        return np.array(feature_importances)
-
-
-    def visualize_feature_importances(
-        self,
-        feature_importances,
-        barplot=True,
-        output=False,
-    ):
-        """
-        Display feature importance values.
-
-        Parameters
-        ----------
-        feature_importances : array-like
-            Feature importance values returned by `explain_instance`.
-        barplot : bool, default=False
-            Whether to display a horizontal bar plot.
-        output : bool, default=True
-            Whether to return the feature importance DataFrame.
-
-        Returns
-        -------
-        pandas.DataFrame, optional
-            Feature importance values indexed by feature name.
-        """
-        if not isinstance(feature_importances, np.ndarray):
-            raise TypeError("feature_importances must be a NumPy array.")
-
-        if len(feature_importances) != len(self.features_names):
-            raise ValueError("feature_importances and features_names must have the same length.")
-
-        df = pd.DataFrame({"Feature Importance": feature_importances},index=self.features_names)
-
-
-        if barplot:
-            fig, ax = plt.subplots()
-            ax.barh(self.features_names[::-1],feature_importances[::-1])
-            ax.set_xlabel("Feature Importance")
-            ax.set_ylabel("Feature")
-            plt.tight_layout()
-            plt.show()
-
-        if output:
-            return df
-
-
-
-    def global_explanation(
-        self,
-        n_instances=30,
-        amount_of_cfs=50,
-        variability=False
-    ):
-        """
-        Compute a global explanation by averaging local explanations
-        over a sample of training instances.
-
-        Parameters
-        ----------
-        n_instances : int, default=30
-            Number of instances used for the global explanation.
-        amount_of_cfs : int, default=50
-            Number of counterfactuals generated per instance.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Mean feature importance for each feature.
-        """
-        if n_instances > len(self.training_data):
-            raise ValueError(
-                f"The amount of instances exceeds the amount of data. Please lower the value of n_instances"
-            )
-        
-        sample_set = self.training_data.drop(columns=self.target_ft_name)
-        sample_set = sample_set.sample(n=n_instances)
-
-
-        importances = np.zeros((n_instances, len(self.features_names)))
-
-        with tqdm(range(n_instances),desc="Explaining instances") as progress:
-
-            with open(os.devnull, "w") as devnull:
-                with redirect_stdout(devnull), redirect_stderr(devnull):
-                    for i in progress:
-                        importances[i, :] = self.explain_instance(
-                        sample_set.iloc[i:i+1],
-                        amount_of_cfs=amount_of_cfs,
-                        )
-        global_importances = np.mean(importances, axis=0)
-
-        if variability:
-            stds = np.std(importances, axis=0)
-            return pd.DataFrame({"Feature Importance": global_importances,"Std": stds,},
-                    index=self.features_names,
-                    )
-        else:
-            return pd.DataFrame({"Feature Importance": global_importances},
-                                index=self.features_names,
-                                )
-            
+    def __str__(self):
+        return (
+            f"Explanation method based on {self.cf_function!r} counterfactual generator, "
+            f"{self.distr_approx} distribution approximation and {self.dist_function} metric"
+        )

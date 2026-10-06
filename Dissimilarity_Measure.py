@@ -1,236 +1,144 @@
 import numpy as np
-from scipy.stats import gaussian_kde
+from scipy.stats import ecdf, gaussian_kde
 from sklearn.neighbors import KernelDensity
-from scipy.stats import ecdf
+
+# np.trapz was removed in NumPy 2.0 (replaced by np.trapezoid)
+_trapz = getattr(np, "trapezoid", None) or np.trapz
 
 
-class KDE:
+def _as_1d(values):
+    return np.asarray(values).ravel()
+
+
+def _grid(set_1, set_2, n_points=1000):
+    """Evenly spaced evaluation points covering both samples."""
+    return np.linspace(min(set_1.min(), set_2.min()), max(set_1.max(), set_2.max()), n_points)
+
+
+# ---------------------------------------------------------------------------
+# Distribution approximations (numerical features)
+#
+# Contract: they receive two samples and return (func_1, func_2, points).
+# They may also short-circuit by returning a scalar dissimilarity directly
+# (used for the degenerate "Dirac delta" cases).
+# ---------------------------------------------------------------------------
+
+def _kde_approximation(set_1, set_2, kernel="gaussian", bandwidth=None):
     """
-        PDF estimated through Kernel Density Estimation. 
-        Parameters
-        ----------
-        set_1 : array-like
-            Samples from the first distribution.
-        set_2 : array-like
-            Samples from the second distribution.
-        
-        kernel : str, default="gaussian"
-                        Kernel used for KDE. Supported kernels are:
-                        "gaussian", "epanechnikov", and "exponential".
-        
-        bandwidth : float, optional
-            Bandwidth used by non-Gaussian kernels.
-    """
+    PDFs estimated through Kernel Density Estimation.
 
-    def __init__(self, kernel="gaussian", bandwidth=None):
-        self.kernel = kernel
-        self.bandwidth = bandwidth
-
-    def __call__(self, set_1, set_2):
-
-        set_1 = np.asarray(set_1).ravel()
-        set_2 = np.asarray(set_2).ravel()
-
-        # Check if we degenerate to Dirac's delta
-
-        if np.allclose(set_1, set_1[0]) and np.allclose(set_2, set_2[0]) and set_1[0]!=set_2[0]:
-            return 1.0 # two separate distributions
-
-        if np.allclose(set_1, set_1[0]) and np.allclose(set_2, set_2[0]):
-            return 0.0 #In this case coincide
-
-        # One of the two degenerate -> CID is undefined.
-        if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-            if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-                raise ValueError("Dissimilarity is undefined when one distribution is degenerate." \
-                "Please use the ecdf")
-
-
-        x_min = min(set_1.min(), set_2.min())
-        x_max = max(set_1.max(), set_2.max())
-
-        x = np.linspace(x_min, x_max, 1000)
-
-        if self.kernel == "gaussian":
-            kde_1 = gaussian_kde(set_1)
-            kde_2 = gaussian_kde(set_2)
-
-            density_1 = kde_1(x)
-            density_2 = kde_2(x)
-
-        elif self.kernel in ["epanechnikov", "exponential"]:
-            if self.bandwidth is None:
-                raise ValueError(
-                    f"Bandwidth must be specified when using the '{self.kernel}' kernel."
-                )
-
-            kde_1 = KernelDensity(kernel=self.kernel,bandwidth=self.bandwidth).fit(set_1.reshape(-1, 1))
-
-            kde_2 = KernelDensity(kernel=self.kernel,bandwidth=self.bandwidth).fit(set_2.reshape(-1, 1))
-
-            density_1 = np.exp(kde_1.score_samples(x.reshape(-1, 1)))
-            density_2 = np.exp(kde_2.score_samples(x.reshape(-1, 1)))
-
-        else:
-            raise ValueError(
-                f"Unsupported kernel: {self.kernel}. "
-                "Choose from 'gaussian', 'epanechnikov', or 'exponential'."
-            )
-
-        return density_1,density_2,x
-        
-
-
-class ECDF:
-    """
-    Computation of the Empirical Cumulative Density Function
-    """
-
-    def __init__(self):
-        pass
-
-    def __call__(self, set_1, set_2):
-
-        x_min = min(set_1.min(), set_2.min())
-        x_max = max(set_1.max(), set_2.max())
-
-        x = np.linspace(x_min, x_max, 1000)
-        set_1 = np.asarray(set_1).ravel()
-        set_2 = np.asarray(set_2).ravel()
-
-        F1 = ecdf(set_1).cdf.evaluate(x)
-        F2 = ecdf(set_2).cdf.evaluate(x)
-
-        return F1,F2,x
-
-
-def _ecdf(set_1,set_2):
-    
-    x_min = min(set_1.min(), set_2.min())
-    x_max = max(set_1.max(), set_2.max())
-
-    x = np.linspace(x_min, x_max, 1000)
-    set_1 = np.asarray(set_1).ravel()
-    set_2 = np.asarray(set_2).ravel()
-
-    F1 = ecdf(set_1).cdf.evaluate(x)
-    F2 = ecdf(set_2).cdf.evaluate(x)
-
-    return F1,F2,x
-
-
-def _kde_approximation(
-    set_1,
-    set_2,
-    kernel="gaussian",
-    bandwidth=None,
-):
-    """
-    PDF estimated through Kernel Density Estimation. 
     Parameters
     ----------
-    set_1 : array-like
-        Samples from the first distribution.
-    set_2 : array-like
-        Samples from the second distribution.
-    
+    set_1, set_2 : array-like
+        Samples from the two distributions.
     kernel : str, default="gaussian"
-                    Kernel used for KDE. Supported kernels are:
-                    "gaussian", "epanechnikov", and "exponential".
-    
+        "gaussian", "epanechnikov" or "exponential".
     bandwidth : float, optional
-        Bandwidth used by non-Gaussian kernels.
-     
+        Required by the non-Gaussian kernels.
+
+    Returns
+    -------
+    (density_1, density_2, points), or a float if both samples are constant.
     """
+    set_1, set_2 = _as_1d(set_1), _as_1d(set_2)
 
-    set_1 = np.asarray(set_1).ravel()
-    set_2 = np.asarray(set_2).ravel()
+    degenerate_1 = np.allclose(set_1, set_1[0])
+    degenerate_2 = np.allclose(set_2, set_2[0])
 
-    # Check if we degenerate to Dirac's delta
+    # Both are Dirac deltas: dissimilarity is 0 if they coincide, 1 otherwise
+    if degenerate_1 and degenerate_2:
+        return 0.0 if np.isclose(set_1[0], set_2[0]) else 1.0
 
-    if np.allclose(set_1, set_1[0]) and np.allclose(set_2, set_2[0]) and set_1[0]!=set_2[0]:
-        return 1.0 # two separate distributions
+    # Only one is a Dirac delta: a KDE cannot be built for it
+    if degenerate_1 or degenerate_2:
+        raise ValueError(
+            "Dissimilarity is undefined when only one distribution is degenerate. "
+            "Please use the ecdf."
+        )
 
-    if np.allclose(set_1, set_1[0]) and np.allclose(set_2, set_2[0]):
-            return 0.0 #In this case coincide
-
-    # One of the two degenerate -> CID is undefined.
-    if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-        if np.allclose(set_1, set_1[0]) or np.allclose(set_2, set_2[0]):
-            raise ValueError("Dissimilarity is undefined when one distribution is degenerate. " \
-            "Please use the ecdf")
-
-
-    x_min = min(set_1.min(), set_2.min())
-    x_max = max(set_1.max(), set_2.max())
-
-    x = np.linspace(x_min, x_max, 1000)
+    x = _grid(set_1, set_2)
 
     if kernel == "gaussian":
-        kde_1 = gaussian_kde(set_1)
-        kde_2 = gaussian_kde(set_2)
+        density_1 = gaussian_kde(set_1)(x)
+        density_2 = gaussian_kde(set_2)(x)
 
-        density_1 = kde_1(x)
-        density_2 = kde_2(x)
-
-    elif kernel in ["epanechnikov", "exponential"]:
+    elif kernel in ("epanechnikov", "exponential"):
         if bandwidth is None:
-            raise ValueError(
-                f"Bandwidth must be specified when using the '{kernel}' kernel."
-            )
+            raise ValueError(f"Bandwidth must be specified when using the '{kernel}' kernel.")
 
-        kde_1 = KernelDensity(kernel=kernel,bandwidth=bandwidth).fit(set_1.reshape(-1, 1))
-
-        kde_2 = KernelDensity(kernel=kernel,bandwidth=bandwidth).fit(set_2.reshape(-1, 1))
+        kde_1 = KernelDensity(kernel=kernel, bandwidth=bandwidth).fit(set_1.reshape(-1, 1))
+        kde_2 = KernelDensity(kernel=kernel, bandwidth=bandwidth).fit(set_2.reshape(-1, 1))
 
         density_1 = np.exp(kde_1.score_samples(x.reshape(-1, 1)))
         density_2 = np.exp(kde_2.score_samples(x.reshape(-1, 1)))
 
     else:
         raise ValueError(
-            f"Unsupported kernel: {kernel}. "
-            "Choose from 'gaussian', 'epanechnikov', or 'exponential'."
+            f"Unsupported kernel: {kernel}. Choose from 'gaussian', 'epanechnikov', or 'exponential'."
         )
 
-    return density_1,density_2,x
+    return density_1, density_2, x
 
 
-def _continuous_jaccard(func_1,func_2,points):
+def _ecdf(set_1, set_2):
+    """Empirical CDFs of the two samples, evaluated on a common grid."""
+    set_1, set_2 = _as_1d(set_1), _as_1d(set_2)
+
+    x = _grid(set_1, set_2)
+
+    return ecdf(set_1).cdf.evaluate(x), ecdf(set_2).cdf.evaluate(x), x
+
+
+class KDE:
+    """Configurable (kernel, bandwidth) version of `_kde_approximation`."""
+
+    def __init__(self, kernel="gaussian", bandwidth=None):
+        self.kernel = kernel
+        self.bandwidth = bandwidth
+
+    def __call__(self, set_1, set_2):
+        return _kde_approximation(set_1, set_2, self.kernel, self.bandwidth)
+
+
+class ECDF:
+    """Callable version of `_ecdf`."""
+
+    def __call__(self, set_1, set_2):
+        return _ecdf(set_1, set_2)
+
+
+# ---------------------------------------------------------------------------
+# Dissimilarities between approximated distributions (numerical features)
+# ---------------------------------------------------------------------------
+
+def _continuous_jaccard(func_1, func_2, points):
+    """Dissimilarity between two distributions using a continuous Jaccard index."""
+    points = np.asarray(points).ravel()
+    dissimilarity = 1 - _trapz(np.minimum(func_1, func_2), points) / _trapz(np.maximum(func_1, func_2), points)
+
+    return np.round(dissimilarity, 4)
+
+
+def _wasserstein(func_1, func_2, points):
     """
-    Computes the dissimilarity between two distributions, using a continuous version
-    of Jaccard Index
+    Wasserstein-1 distance. It is only correct when func_1 and func_2 are CDFs
+    (i.e. when using the ecdf approximation).
     """
-    dissimilarity = 1 - np.trapz(np.minimum(func_1, func_2), points.ravel()) / np.trapz(np.maximum(func_1, func_2), points.ravel())
-
-    return np.round(dissimilarity,4)
+    return _trapz(np.abs(func_1 - func_2), np.asarray(points).ravel())
 
 
-def _wasserstein(func_1,func_2,points):
-    """
-    Computes the wasserstein distance between two distributions
-    """
-    return np.trapz(np.abs(func_1-func_2),points.ravel())
-
-
-
-# Categorical (ongoing)
+# ---------------------------------------------------------------------------
+# Dissimilarity between samples (categorical features) -- ongoing
+# ---------------------------------------------------------------------------
 
 def _jaccard_distance(set1, set2):
     """
-    Compute the jaccard distance between two sets which is 1 - intersection/union
-
-    Parameters
-    ----------
-    set_1 : array or list
-        Samples from the first distribution.
-    set_2 : array or list
-        Samples from the second distribution.
+    Jaccard distance between the sets of values of two samples:
+    1 - |intersection| / |union|.
     """
-    if len(set(set1))==0 and len(set(set2))==0:
+    set1, set2 = set(set1), set(set2)
+
+    if not set1 and not set2:
         raise ArithmeticError("Both sets are empty")
-    
-    intersection = set(set1).intersection(set(set2))
-    union = set(set1).union(set(set2))
 
-    return 1 - len(intersection)/len(union)
-
+    return 1 - len(set1 & set2) / len(set1 | set2)
