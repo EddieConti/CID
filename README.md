@@ -9,11 +9,11 @@ CID follows a common attribution strategy:
 ```text
 Instance
    ↓
-Generate two sets of counterfactual points
+Generate two sets of counterfactual points (Recommended: KNeighbors)
    ↓
-Infer the distributions
+Infer the distributions (Recommended: _ecdf)
    ↓
-Measure their dissimilarity
+Measure their dissimilarity (Recommended: _wasserstein)
    ↓
 Feature attribution
 ```
@@ -68,7 +68,7 @@ cat.global_explanation(n_instances=30)
 cf_function(instance, amount_of_cfs)  ->  predicted_class_data, opposite_class_data
 ```
 
-Both outputs are arrays containing only the explained features (columns in the order of `features_names`). Available in `Initializer.py`: `DICE`, `KNeighbors`, `RANDOM`.
+It is important to have a function that generates two types of counterfactuals: instances with the same predicted class and instances with the opposite predicted class. DiCE is a counterfactual library that account for this possibility, we wrote other two methods: Kneighbors (recommended) and RANDOM. Both outputs are arrays containing only the explained features (columns in the order of `features_names`). Available in `Initializer.py`: `DICE`, `KNeighbors`, `RANDOM`.
 
 ### 2. Distribution approximation (numerical explainer)
 
